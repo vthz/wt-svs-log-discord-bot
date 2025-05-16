@@ -46,16 +46,24 @@ class BattleLog(models.Model):
         table = "battle_log"
 
 
-class SquadronPlayers:
+class SquadronPlayer(models.Model):
     id = fields.IntField(pk=True)
     squadron = fields.ForeignKeyField("models.Squadron", related_name="players")
     player_id = fields.BigIntField(unique=True)
-    player_name = fields.CharField(max_length=10)
+    player_name = fields.CharField(max_length=50)
     status = fields.CharEnumField(StatusEnum, default=StatusEnum.ACTIVE)
 
     class Meta:
         table = "squadron_players"
 
+
+class PlayerBattleLog(models.Model):
+    id = fields.IntField(pk=True)
+    battle_log = fields.ForeignKeyField("models.BattleLog", related_name="player_battle_log")
+    player = fields.ForeignKeyField("models.SquadronPlayer", related_name="squadron_players")
+
+    class Meta:
+        table = "player_battle_log"
 
 async def init_db():
     port = int(os.getenv("DB_PORT").strip())

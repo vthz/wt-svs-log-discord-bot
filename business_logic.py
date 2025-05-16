@@ -29,9 +29,9 @@ def parse_html(html_content: str):
             player_id = player.select_one("div._resultItemNames__nameId_1umbu_259").text.strip()
             # print(f"  - {name} ({player_url})")
             if team_int == 1:
-                team_1.append([player_id, name, player_url])
+                team_1.append([player_id.replace("ID ", ""), name, player_url])
             else:
-                team_2.append([player_id, name, player_url])
+                team_2.append([player_id.replace("ID ", ""), name, player_url])
         team_int = 2
 
     # Get Session ID

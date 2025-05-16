@@ -1,3 +1,5 @@
+from datetime import datetime
+
 import discord
 from discord.ext import commands
 from discord import app_commands, Attachment, Colour
@@ -8,7 +10,7 @@ from business_logic import parse_html
 from dotenv import load_dotenv
 import os
 
-from db import Squadron, StatusEnum, init_db, SquadronSettings
+from db import Squadron, StatusEnum, init_db, SquadronSettings, BattleLog, SquadronPlayer, PlayerBattleLog
 
 # Load .env file into environment variables
 load_dotenv()
@@ -75,7 +77,9 @@ async def show_settings(interaction: discord.Interaction):
         await interaction.response.send_message(f"Current settings: \n"
                                                 f"SINGLE_LINE_LOGS:  {squadron_settings.get('single_line_logs', '')}")
     except Exception as e:
-        await interaction.response.send_message(f"Failed to fetch settings: {e}")
+        print("ERROR:", e)
+        await interaction.response.send_message(
+            f"Failed to fetch settings: Seems like you have not registered your squadron")
 
 
 # @app_commands.describe(name="Single line log - Y/y or N/n")
@@ -125,7 +129,46 @@ async def log_svs_battle(interaction: discord.Interaction, file: Attachment, bat
         embed.add_field(name="", value=parsed_result.get("time_stamp", ""))
         embed.add_field(name="Duration", value=parsed_result.get("match_duration", ""))
         embed.add_field(name="Session ID", value=parsed_result.get("session_id", ""), inline=False)
+
+    discord_id = interaction.guild_id
+    squadron = await Squadron.get(discord_id=discord_id)
+    if squadron.status == "INACTIVE" or squadron is None:
+        await interaction.response.send_message(f"Squadron doesn't exists")
+        return
+
+    # try:
+    battle_log = await BattleLog.create(
+        squadron=squadron,
+        map_name=parsed_result.get("", ""),
+        battle_description=parsed_result.get("", ""),
+        duration=parsed_result.get("match_duration", ""),
+        session_id=parsed_result.get("session_id", ""),
+        verdict='WIN' if battle_verdict == 'win' else 'LOST',
+        timestamp=datetime.strptime(parsed_result.get("time_stamp", ""), "%d %b %Y - %H:%M")
+    )
+    print("PR", parsed_result)
+    for player in parsed_result.get("team_1", []):
+        player_exist = await SquadronPlayer.get_or_none(player_id=player[0])
+        print("PE", player_exist)
+        if player_exist is None:
+            new_player = await SquadronPlayer.create(
+                squadron=squadron,
+                player_id=player[0],
+                player_name=player[1],
+                status="ACTIVE"
+            )
+            await PlayerBattleLog.create(
+                battle_log=battle_log,
+                player=new_player
+            )
+        else:
+            await PlayerBattleLog.create(
+                battle_log=battle_log,
+                player=player_exist
+            )
     await interaction.response.send_message(embed=embed)
+# except Exception as e:
+#     await interaction.response.send_message(f"Error while logging battle details: {e}")
 
 
 client.run(api_key)
