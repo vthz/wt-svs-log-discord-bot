@@ -16,10 +16,6 @@ from db import Squadron, StatusEnum, init_db, SquadronSettings, BattleLog, Squad
 load_dotenv()
 api_key = os.getenv("API_KEY")
 
-SQUADRON_NAME = "INDIA"
-ENABLE_ONE_LINE_EMBED = True
-
-
 class Client(commands.Bot):
     async def on_ready(self):
         print(f"Logged on as {self.user}!")
@@ -107,6 +103,9 @@ async def set_single_line_log(interaction: discord.Interaction, response: str):
 @client.tree.command(name="log_svs_battle", description="Upload the HTML replay file to log the battle", guild=GUILD_ID)
 @app_commands.describe(file="Upload the HTML file exported from replay page")
 async def log_svs_battle(interaction: discord.Interaction, file: Attachment, battle_verdict: str, enemy_squadron: str):
+    discord_id = interaction.guild_id
+    squadron = await Squadron.get(discord_id=discord_id)
+
     # Ensure it's a text file
     if not file.filename.endswith(".html") and not file.filename.endswith(".txt"):
         await interaction.response.send_message("Please upload a valid .html or .txt file.", ephemeral=True)
@@ -120,8 +119,11 @@ async def log_svs_battle(interaction: discord.Interaction, file: Attachment, bat
     parsed_result = parse_html(html_content)
     # await interaction.response.send_message(parsed_result)
     embed_color = Colour.green() if battle_verdict == "win" else Colour.red()
-    embed_title = f"{'WIN' if battle_verdict == 'win' else 'LOST'} \t [{SQUADRON_NAME} vs {enemy_squadron}]"
-    if ENABLE_ONE_LINE_EMBED:
+    embed_title = f"{'WIN' if battle_verdict == 'win' else 'LOST'} \t [{squadron.squadron_name} vs {enemy_squadron}]"
+
+    squadron_settings = await SquadronSettings.get(squadron=squadron)
+
+    if squadron_settings.one_line_embed_enabled:
         embed = discord.Embed(title=f"{embed_title}", description="", color=embed_color)
     else:
         embed = discord.Embed(title=f"{embed_title}", description=parsed_result.get("battle_map"), color=embed_color)
@@ -130,8 +132,6 @@ async def log_svs_battle(interaction: discord.Interaction, file: Attachment, bat
         embed.add_field(name="Duration", value=parsed_result.get("match_duration", ""))
         embed.add_field(name="Session ID", value=parsed_result.get("session_id", ""), inline=False)
 
-    discord_id = interaction.guild_id
-    squadron = await Squadron.get(discord_id=discord_id)
     if squadron.status == "INACTIVE" or squadron is None:
         await interaction.response.send_message(f"Squadron doesn't exists")
         return
@@ -146,10 +146,10 @@ async def log_svs_battle(interaction: discord.Interaction, file: Attachment, bat
         verdict='WIN' if battle_verdict == 'win' else 'LOST',
         timestamp=datetime.strptime(parsed_result.get("time_stamp", ""), "%d %b %Y - %H:%M")
     )
-    print("PR", parsed_result)
+
     for player in parsed_result.get("team_1", []):
         player_exist = await SquadronPlayer.get_or_none(player_id=player[0])
-        print("PE", player_exist)
+
         if player_exist is None:
             new_player = await SquadronPlayer.create(
                 squadron=squadron,
