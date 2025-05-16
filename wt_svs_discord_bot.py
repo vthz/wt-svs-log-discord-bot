@@ -45,7 +45,6 @@ async def register_squadron(interaction: discord.Interaction, name: str):
     if len(name) > 10:
         await interaction.response.send_message("Squadron name too long (max 10 characters).", ephemeral=True)
         return
-
     try:
         squadron = await Squadron.create(
             discord_id=interaction.guild_id,
@@ -60,21 +59,46 @@ async def register_squadron(interaction: discord.Interaction, name: str):
     except IntegrityError:
         await interaction.response.send_message(f"❌ Squadron already exists for this server.", ephemeral=True)
 
-@client.tree.command(name="single_line_logs", description="Prints logs in single line if True", guild=GUILD_ID)
-@app_commands.describe(
-    name="Single line log - Y/y or N/n",
-)
-async def single_line_log(interaction: discord.Interaction, response: str):
-    if response not in ["Y", "y", "N", "n"]:
-        await interaction.response.send_message("Invalid response, respond as Y/y for Yes or N/n for No", ephemeral=True)
-        return
 
+@client.tree.command(name="show_settings", description="Show squadron settings", guild=GUILD_ID)
+async def show_settings(interaction: discord.Interaction):
+    discord_id = interaction.guild_id  # Or however you track the squadron
     try:
+        squadron = await Squadron.get(discord_id=discord_id)
+        if squadron.status == "INACTIVE" or squadron is None:
+            await interaction.response.send_message(f"Squadron doesn't exists")
+            return
+        settings = await SquadronSettings.get(squadron=squadron)
+        squadron_settings = {
+            "single_line_logs": settings.one_line_embed_enabled
+        }
+        await interaction.response.send_message(f"Current settings: \n"
+                                                f"SINGLE_LINE_LOGS:  {squadron_settings.get('single_line_logs', '')}")
+    except Exception as e:
+        await interaction.response.send_message(f"Failed to fetch settings: {e}")
 
 
-        await interaction.response.send_message(f"✅ Squadron '{name}' registered successfully!")
-    except IntegrityError:
-        await interaction.response.send_message(f"❌ Squadron already exists for this server.", ephemeral=True)
+# @app_commands.describe(name="Single line log - Y/y or N/n")
+@client.tree.command(name="settings_single_line_logs", description="Single line log - Y/y or N/n", guild=GUILD_ID)
+async def set_single_line_log(interaction: discord.Interaction, response: str):
+    discord_id = interaction.guild_id
+
+    if response not in ["Y", "y", "N", "n"]:
+        await interaction.response.send_message("Invalid response, respond as Y/y for Yes or N/n for No")
+        return
+    settings_flag = True if response in ["Y", "y"] else False
+    try:
+        squadron = await Squadron.get(discord_id=discord_id)
+        if squadron.status == "INACTIVE" or squadron is None:
+            await interaction.response.send_message(f"Squadron doesn't exists")
+            return
+        settings = await SquadronSettings.get(squadron=squadron)
+        settings.one_line_embed_enabled = settings_flag
+        await settings.save()
+        await interaction.response.send_message(f"✅ SINGLE_LINES_LOGS set to {settings_flag}")
+    except Exception as e:
+        await interaction.response.send_message(f"❌ Error while modifying settings: {e}", ephemeral=True)
+
 
 @client.tree.command(name="log_svs_battle", description="Upload the HTML replay file to log the battle", guild=GUILD_ID)
 @app_commands.describe(file="Upload the HTML file exported from replay page")
