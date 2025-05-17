@@ -1,6 +1,3 @@
-from datetime import datetime, timedelta, timezone
-from typing import Optional
-
 import discord
 from discord.ext import commands
 from discord import app_commands, Attachment, Colour
@@ -8,6 +5,9 @@ from tortoise.exceptions import IntegrityError, DoesNotExist
 from business_logic import parse_html
 from dotenv import load_dotenv
 import os
+from discord import Embed
+from typing import Optional
+from datetime import datetime, timedelta, timezone
 
 from db import Squadron, StatusEnum, init_db, SquadronSettings, BattleLog, SquadronPlayer, PlayerBattleLog
 
@@ -38,76 +38,82 @@ GUILD_ID = discord.Object(id=1372919660126671011)
 @client.tree.command(name="help", description="List all available bot commands", guild=GUILD_ID)
 async def show_help(interaction: discord.Interaction):
     embed = discord.Embed(
-        title="📘 Bot Commands Help",
-        description="Here’s a list of all available commands and what they do:",
+        title="📘 Squadron Bot - Help",
+        description="Here’s a list of all available commands:",
         color=discord.Color.blue()
     )
 
     embed.add_field(
-        name="/register_squadron [name]",
-        value="Registers a new squadron for this Discord server.\n🛑 Max 10 characters.\n✅ One squadron per server.",
+        name="🆕 /register_squadron [name]",
+        value="Register a new squadron for this Discord server.\n🔸 Max 10 characters.\n🔸 One squadron per server.",
         inline=False
     )
     embed.add_field(name="\u200b", value="", inline=False)
 
     embed.add_field(
-        name="/rename_squadron",
-        value="Rename your registered squadron (max 10 characters).",
+        name="✏️ /rename_squadron [new_name]",
+        value="Rename your registered squadron.\n🔸 Max 10 characters.",
         inline=False
     )
     embed.add_field(name="\u200b", value="", inline=False)
 
     embed.add_field(
-        name="/show_settings",
-        value="Displays the current settings for this squadron.",
+        name="⚙️ /show_settings",
+        value="Display current settings for the squadron.",
         inline=False
     )
     embed.add_field(name="\u200b", value="", inline=False)
 
     embed.add_field(
-        name="/settings_single_line_logs [Y/N]",
-        value="Sets whether battle logs are shown in a single-line format.\n✔️ Use 'Y' or 'N'.",
+        name="📝 /settings_single_line_logs [Y/N]",
+        value="Enable or disable single-line format for battle logs.\n🔹 Use `Y` for Yes or `N` for No.",
         inline=False
     )
     embed.add_field(name="\u200b", value="", inline=False)
 
     embed.add_field(
-        name="/log_svs_battle [file] [battle_verdict] [enemy_squadron]",
+        name="📤 /log_svs_battle [file] [verdict] [enemy_squadron]",
         value=(
-            "Logs a battle using an exported HTML file.\n"
-            "📎 File: Upload the replay HTML or TXT file\n"
-            "⚔️ Verdict: `win` or `lost`\n"
-            "🏴 Enemy Squadron: name of the enemy squadron"
+            "Log a squadron battle using a replay file.\n"
+            "🔹 File: Upload a `.html` or `.txt` replay file\n"
+            "🔹 Verdict: `win` or `lost`\n"
+            "🔹 Enemy Squadron: Opponent's squadron name"
         ),
         inline=False
     )
     embed.add_field(name="\u200b", value="", inline=False)
 
     embed.add_field(
-        name="/help",
-        value="Shows this help message.",
+        name="📊 /show_recent_battle_log [count]",
+        value="Show the most recent battle logs. Default is 5 if not specified.",
         inline=False
     )
     embed.add_field(name="\u200b", value="", inline=False)
 
     embed.add_field(
-        name="/show_battle_log_count [number]",
-        value="Show the most recent [number] of battle logs.",
+        name="📅 /show_todays_battle_log",
+        value="View battle logs logged today.",
         inline=False
     )
     embed.add_field(name="\u200b", value="", inline=False)
 
     embed.add_field(
-        name="/show_todays_battle_log",
-        value="Show today's battle logs for the squadron.",
+        name="🏆 /stats_most_battle_contributor",
+        value="Displays the user who contributed the most battles.",
         inline=False
     )
     embed.add_field(name="\u200b", value="", inline=False)
 
-    embed.set_footer(text="Use slash commands to interact with the bot.")
+    embed.add_field(
+        name="❓ /help",
+        value="Display this help message.",
+        inline=False
+    )
+    embed.add_field(name="\u200b", value="", inline=False)
+
+    embed.set_footer(text="Use these slash commands to interact with the bot. Need help? Contact the admin team.")
 
     await interaction.response.send_message(embed=embed, ephemeral=True)
-
 
 
 @client.tree.command(name="register_squadron", description="Register a new squadron", guild=GUILD_ID)
@@ -136,6 +142,7 @@ async def register_squadron(interaction: discord.Interaction, name: str):
         print("[Register Error]", e)
         await interaction.response.send_message("❌ An unexpected error occurred while registering the squadron.",
                                                 ephemeral=True)
+
 
 @client.tree.command(name="rename_squadron", description="Rename the registered squadron", guild=GUILD_ID)
 @app_commands.describe(new_name="New squadron name (max 10 characters)")
@@ -261,15 +268,13 @@ async def log_svs_battle(interaction: discord.Interaction, file: Attachment, bat
                                                 ephemeral=True)
 
 
-from discord import Embed
-
 @client.tree.command(
-    name="show_battle_log_count",
+    name="show_recent_battle_log",
     description="Show recent battle logs for this squadron",
     guild=GUILD_ID
 )
 @app_commands.describe(count="Number of recent battle logs to show (default: 5)")
-async def show_battle_log_count(interaction: discord.Interaction, count: Optional[int] = 5):
+async def show_recent_battle_log(interaction: discord.Interaction, count: Optional[int] = 5):
     try:
         if count is not None and count <= 0:
             await interaction.response.send_message("❌ Count must be a positive number.", ephemeral=True)
@@ -302,7 +307,8 @@ async def show_battle_log_count(interaction: discord.Interaction, count: Optiona
                 f"{log.map_name}\n"
                 f"{log.timestamp.strftime('%b %d, %Y %H:%M UTC')}"
             )
-            embed.add_field(name=f"Battle {i} | vs {log.enemy_squadron} | {verdict_emoji}", value=field_value, inline=False)
+            embed.add_field(name=f"Battle {i} | vs {log.enemy_squadron} | {verdict_emoji}", value=field_value,
+                            inline=False)
 
         await interaction.response.send_message(embed=embed)
     except Exception as e:
@@ -310,7 +316,8 @@ async def show_battle_log_count(interaction: discord.Interaction, count: Optiona
         await interaction.response.send_message("❌ An error occurred while retrieving battle logs.", ephemeral=True)
 
 
-@client.tree.command(name="show_todays_battle_log", description="Show today’s battle logs for this squadron", guild=GUILD_ID)
+@client.tree.command(name="show_todays_battle_log", description="Show today’s battle logs for this squadron",
+                     guild=GUILD_ID)
 async def show_todays_battle_log(interaction: discord.Interaction):
     try:
         squadron = await Squadron.get_or_none(discord_id=interaction.guild_id)
@@ -335,16 +342,12 @@ async def show_todays_battle_log(interaction: discord.Interaction):
         await interaction.response.send_message(f"📅 Today’s Battle Logs:\n\n{message}")
     except Exception as e:
         print("[Show Today's Battle Log Error]", e)
-        await interaction.response.send_message("❌ An error occurred while retrieving today's battle logs.", ephemeral=True)
+        await interaction.response.send_message("❌ An error occurred while retrieving today's battle logs.",
+                                                ephemeral=True)
 
-
-from typing import Optional
-
-from typing import Optional
-from datetime import datetime, timedelta, timezone
 
 @client.tree.command(
-    name="most_battle_contributor",
+    name="stats_most_battle_contributor",
     description="Show a ranked list of players with the most battles in this squadron",
     guild=GUILD_ID
 )
@@ -352,10 +355,10 @@ from datetime import datetime, timedelta, timezone
     top_n="Number of top contributors to display (default is 10)",
     days="Filter battles from the last X days (optional)"
 )
-async def most_battle_contributor(
-    interaction: discord.Interaction,
-    top_n: Optional[int] = 10,
-    days: Optional[int] = None
+async def stats_most_battle_contributor(
+        interaction: discord.Interaction,
+        top_n: Optional[int] = 10,
+        days: Optional[int] = None
 ):
     try:
         squadron = await Squadron.get_or_none(discord_id=interaction.guild_id)
@@ -406,7 +409,7 @@ async def most_battle_contributor(
         embed = discord.Embed(
             title=title,
             description=leaderboard,
-            color=discord.Color.blue()
+            color=discord.Color.yellow()
         )
         embed.set_footer(text="Based on player participation in recorded battles")
 
@@ -414,6 +417,10 @@ async def most_battle_contributor(
 
     except Exception as e:
         print("[Most Battle Contributor Error]", e)
-        await interaction.response.send_message("❌ An error occurred while fetching battle contributor data.", ephemeral=True)
+        await interaction.response.send_message("❌ An error occurred while fetching battle contributor data.",
+                                                ephemeral=True)
+
+    embed.add_field(name="\u200b", value="", inline=False)
+
 
 client.run(api_key)
