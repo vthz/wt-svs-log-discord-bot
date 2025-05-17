@@ -40,6 +40,7 @@ class BattleLog(models.Model):
     duration = fields.CharField(max_length=20)
     session_id = fields.CharField(max_length=50)
     verdict = fields.CharField(max_length=10)
+    enemy_squadron = fields.CharField(max_length=10)
     timestamp = fields.DatetimeField(auto_now_add=True)
 
     class Meta:
