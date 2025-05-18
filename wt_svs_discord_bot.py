@@ -9,7 +9,7 @@ from discord import Embed
 from typing import Optional
 from datetime import datetime, timedelta, timezone
 
-from db import Squadron, StatusEnum, init_db, SquadronSettings, BattleLog, SquadronPlayer, PlayerBattleLog
+from db import Squadron, StatusEnum, init_db, run_sqlite_db, SquadronSettings, BattleLog, SquadronPlayer, PlayerBattleLog
 
 # Load environment variables
 load_dotenv()
@@ -19,7 +19,8 @@ api_key = os.getenv("API_KEY")
 class Client(commands.Bot):
     async def on_ready(self):
         print(f"Logged on as {self.user}!")
-        await init_db()
+        # await init_db()
+        await run_sqlite_db()
         try:
             guild = discord.Object(id=1372919660126671011)
             synced = await self.tree.sync(guild=guild)
@@ -72,20 +73,21 @@ async def show_help(interaction: discord.Interaction):
     embed.add_field(name="\u200b", value="", inline=False)
 
     embed.add_field(
-        name="📤 /log_svs_battle [file] [verdict] [enemy_squadron]",
+        name="📤 /log_svs_battle [file] [verdict] [enemy_squadron] [team_flipped]",
         value=(
             "Log a squadron battle using a replay file.\n"
             "🔹 File: Upload a `.html` or `.txt` replay file\n"
             "🔹 Verdict: `win` or `lost`\n"
-            "🔹 Enemy Squadron: Opponent's squadron name"
+            "🔹 Enemy Squadron: Opponent's squadron name \n"
+            "🔹 team_flipped: Choose second team if our team is in the team2 in squadron replay"
         ),
         inline=False
     )
     embed.add_field(name="\u200b", value="", inline=False)
 
     embed.add_field(
-        name="📊 /show_recent_battle_log [count]",
-        value="Show the most recent battle logs. Default is 5 if not specified.",
+        name="📊 /show_recent_battle_log [count] [day]",
+        value="Show the most recent battle logs for within last n days. Default is 5 if not specified.",
         inline=False
     )
     embed.add_field(name="\u200b", value="", inline=False)
@@ -212,7 +214,8 @@ async def set_single_line_log(interaction: discord.Interaction, response: str):
 
 @client.tree.command(name="log_svs_battle", description="Upload the HTML replay file to log the battle", guild=GUILD_ID)
 @app_commands.describe(file="Upload the HTML file exported from replay page")
-async def log_svs_battle(interaction: discord.Interaction, file: Attachment, battle_verdict: str, enemy_squadron: str):
+async def log_svs_battle(interaction: discord.Interaction, file: Attachment, battle_verdict: str, enemy_squadron: str,
+                         team_flipped: bool):
     if not file.filename.endswith(".html") and not file.filename.endswith(".txt"):
         await interaction.response.send_message("❌ Please upload a valid .html or .txt file.", ephemeral=True)
         return
@@ -239,6 +242,13 @@ async def log_svs_battle(interaction: discord.Interaction, file: Attachment, bat
             embed.add_field(name="Duration", value=parsed_result.get("match_duration", ""))
             embed.add_field(name="Session ID", value=parsed_result.get("session_id", ""), inline=False)
 
+        session_id_exist = await BattleLog.get_or_none(session_id=parsed_result.get("session_id", ""))
+        if session_id_exist:
+            await interaction.response.send_message(
+                f"❌ Session ID already exists. This Battle was already logged!",
+                ephemeral=True)
+            return
+
         battle_log = await BattleLog.create(
             squadron=squadron,
             map_name=parsed_result.get("battle_map", ""),
@@ -250,7 +260,8 @@ async def log_svs_battle(interaction: discord.Interaction, file: Attachment, bat
             enemy_squadron=enemy_squadron,
         )
 
-        for player_id, player_name, player_url in parsed_result.get("team_1", []):
+        friendly_team = "team_2" if team_flipped else "team_1"
+        for player_id, player_name, player_url in parsed_result.get(friendly_team, []):
             player = await SquadronPlayer.get_or_none(player_id=player_id)
             if not player:
                 player = await SquadronPlayer.create(
@@ -285,7 +296,7 @@ async def show_recent_battle_log(interaction: discord.Interaction, count: Option
             await interaction.response.send_message("❌ No squadron is registered for this server.", ephemeral=True)
             return
 
-        logs = await BattleLog.filter(squadron=squadron).order_by('-timestamp')
+        logs = await BattleLog.filter(squadron=squadron).order_by('timestamp')
         total_logs = len(logs)
 
         if total_logs == 0:
@@ -307,8 +318,9 @@ async def show_recent_battle_log(interaction: discord.Interaction, count: Option
                 f"{log.map_name}\n"
                 f"{log.timestamp.strftime('%b %d, %Y %H:%M UTC')}"
             )
-            embed.add_field(name=f"Battle {i} | vs {log.enemy_squadron} | {verdict_emoji}", value=field_value,
+            embed.add_field(name=f"{verdict_emoji} | Battle {i} | vs {log.enemy_squadron}", value=field_value,
                             inline=False)
+            embed.add_field(name="\u200b", value="", inline=False)
 
         await interaction.response.send_message(embed=embed)
     except Exception as e:
@@ -328,18 +340,31 @@ async def show_todays_battle_log(interaction: discord.Interaction):
         now = datetime.now(timezone.utc)
         start_of_day = now.replace(hour=0, minute=0, second=0, microsecond=0)
 
-        logs = await BattleLog.filter(squadron=squadron, timestamp__gte=start_of_day).order_by('-timestamp')
+        logs = await BattleLog.filter(squadron=squadron, timestamp__gte=start_of_day).order_by('timestamp')
+        total_logs = len(logs)
 
-        if not logs:
-            await interaction.response.send_message("📭 No battle logs found for today.")
+        if total_logs == 0:
+            await interaction.response.send_message("📭 No battle logs found.")
             return
 
-        log_messages = [
-            f"🧾 **{log.map_name}** | {log.battle_description} | {log.verdict} | {log.duration}"
-            for log in logs[:10]
-        ]
-        message = "\n".join(log_messages)
-        await interaction.response.send_message(f"📅 Today’s Battle Logs:\n\n{message}")
+        embed = Embed(
+            title=f"📚 Battle logs | {now.strftime('%b %d, %Y %H:%M UTC')}",
+            color=0x2F3136  # Default dark embed color
+        )
+
+        for i, log in enumerate(logs, 1):
+            # Choose emoji color based on verdict
+            verdict_emoji = "🟩" if log.verdict.upper() == "WIN" else "🟥"
+            # Build field value string
+            field_value = (
+                f"{log.map_name}\n"
+                f"{log.timestamp.strftime('%b %d, %Y %H:%M UTC')}"
+            )
+            embed.add_field(name=f"{verdict_emoji} | Battle {i} | vs {log.enemy_squadron}", value=field_value,
+                            inline=False)
+            embed.add_field(name="\u200b", value="", inline=False)
+
+        await interaction.response.send_message(embed=embed)
     except Exception as e:
         print("[Show Today's Battle Log Error]", e)
         await interaction.response.send_message("❌ An error occurred while retrieving today's battle logs.",
@@ -419,8 +444,6 @@ async def stats_most_battle_contributor(
         print("[Most Battle Contributor Error]", e)
         await interaction.response.send_message("❌ An error occurred while fetching battle contributor data.",
                                                 ephemeral=True)
-
-    embed.add_field(name="\u200b", value="", inline=False)
 
 
 client.run(api_key)

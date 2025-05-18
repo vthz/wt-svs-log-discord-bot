@@ -7,6 +7,13 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+# Dynamically get the user's Desktop path
+desktop_path = os.path.join(os.path.expanduser("~"), "Desktop")
+db_folder = os.path.join(desktop_path, "wt-svs-discord-bot")
+os.makedirs(db_folder, exist_ok=True)  # Ensure the folder exists
+
+DB_FILE = os.path.join(db_folder, "wt_discord_bot_db.sqlite3")
+
 
 class StatusEnum(str, Enum):
     ACTIVE = "ACTIVE"
@@ -38,7 +45,7 @@ class BattleLog(models.Model):
     map_name = fields.CharField(max_length=100)
     battle_description = fields.CharField(max_length=100)
     duration = fields.CharField(max_length=20)
-    session_id = fields.CharField(max_length=50)
+    session_id = fields.CharField(max_length=50, unique=True)
     verdict = fields.CharField(max_length=10)
     enemy_squadron = fields.CharField(max_length=10)
     timestamp = fields.DatetimeField(auto_now_add=True)
@@ -66,6 +73,7 @@ class PlayerBattleLog(models.Model):
     class Meta:
         table = "player_battle_log"
 
+
 async def init_db():
     port = int(os.getenv("DB_PORT").strip())
 
@@ -79,11 +87,30 @@ async def init_db():
     await Tortoise.generate_schemas()
 
 
-async def run():
-    await init_db()
-    print("✅ Database schema generated!")
+# async def run():
+#     await init_db()
+#     print("✅ Database schema generated!")
+#     await Tortoise.close_connections()
+
+async def run_sqlite_db():
+    # Step 1: Delete existing DB file if it exists
+    # if os.path.exists(DB_FILE):
+    #     os.remove(DB_FILE)
+    #     print("🗑️ Old database file deleted.")
+
+    # Step 2: Initialize Tortoise ORM with SQLite
+    await Tortoise.init(
+        db_url=f"sqlite://{DB_FILE}",
+        modules={"models": ["db"]},  # replace "db" with the actual module name of your models
+    )
+
+    # Step 3: Generate schema (tables)
+    await Tortoise.generate_schemas()
+    print("✅ New SQLite database created.")
+
+    # Step 4: Close connections
     await Tortoise.close_connections()
 
 
 if __name__ == "__main__":
-    asyncio.run(run())
+    asyncio.run(run_sqlite_db())
